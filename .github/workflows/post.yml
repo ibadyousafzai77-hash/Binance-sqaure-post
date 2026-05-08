@@ -1,26 +1,18 @@
-name: Binance Square Auto Post
+name: Crypto Signal Notification
 
 on:
   schedule:
-    - cron: '0,30 * * * *'
+    - cron: '0,15,30,45 * * * *'
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
-  post:
+  notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Run Bot
-        env:
-          BINANCE_SQUARE_API_KEY: ${{ secrets.BINANCE_SQUARE_API_KEY }}
+      - name: Generate Signal & Notify
         run: node bot.js
