@@ -2,12 +2,15 @@ name: Binance Square Auto Post
 
 on:
   schedule:
-    - cron: '0,15,30,45 * * * *'
+    - cron: '0,30 * * * *'
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   post:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
