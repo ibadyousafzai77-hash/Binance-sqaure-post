@@ -1,18 +1,23 @@
-name: Crypto Signal Notification
+name: Crypto Signal Bot
 
 on:
   schedule:
-    - cron: '0,15,30,45 * * * *'
+    - cron: "0,10,20,30,40,50 * * * *"
   workflow_dispatch:
 
 jobs:
-  notify:
+  run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Generate Signal & Notify
+          node-version: "20"
+
+      - name: Run Signal Bot
         run: node bot.js
+        env:
+          BINANCE_SQUARE_API_KEY: ${{ secrets.BINANCE_SQUARE_API_KEY }}
