@@ -11,27 +11,49 @@ const SCAN_COINS = [
   "WIFUSDT", "BONKUSDT", "PENDLEUSDT", "RENDERUSDT", "AAVEUSDT"
 ];
 
+function sleep(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
 function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const mod = url.startsWith("https") ? https : http;
-    const req = mod.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, (res) => {
-      let data = "";
-      res.on("data", (c) => (data += c));
-      res.on("end", () => {
+  return new Promise(function(resolve, reject) {
+    var mod = url.startsWith("https") ? https : http;
+    var req = mod.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, function(res) {
+      var data = "";
+      res.on("data", function(c) { data += c; });
+      res.on("end", function() {
         try { resolve(JSON.parse(data)); }
-        catch (e) { reject(new Error("JSON parse error: " + data.slice(0, 100))); }
+        catch (e) { reject(new Error("JSON parse error: " + data.slice(0, 200))); }
       });
     });
     req.on("error", reject);
-    req.setTimeout(12000, () => { req.destroy(); reject(new Error("Timeout")); });
+    req.setTimeout(15000, function() { req.destroy(); reject(new Error("Timeout after 15s")); });
   });
 }
 
+async function httpGetWithRetry(url, retries) {
+  retries = retries || 3;
+  var lastErr;
+  for (var attempt = 1; attempt <= retries; attempt++) {
+    try {
+      var result = await httpGet(url);
+      return result;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        var delay = attempt * 1000;
+        await sleep(delay);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 function sendNtfy(title, message, priority) {
-  return new Promise((resolve, reject) => {
-    const body = Buffer.from(message, "utf8");
-    const safeTitle = "base64," + Buffer.from(title).toString("base64");
-    const options = {
+  return new Promise(function(resolve, reject) {
+    var body = Buffer.from(message, "utf8");
+    var safeTitle = "base64," + Buffer.from(title).toString("base64");
+    var options = {
       hostname: "ntfy.sh",
       port: 443,
       path: "/" + NTFY_TOPIC,
@@ -44,13 +66,13 @@ function sendNtfy(title, message, priority) {
         "Content-Length": body.length,
       },
     };
-    const req = https.request(options, (res) => {
-      let d = "";
-      res.on("data", (c) => (d += c));
-      res.on("end", () => resolve({ status: res.statusCode, body: d }));
+    var req = https.request(options, function(res) {
+      var d = "";
+      res.on("data", function(c) { d += c; });
+      res.on("end", function() { resolve({ status: res.statusCode, body: d }); });
     });
     req.on("error", reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error("ntfy timeout")); });
+    req.setTimeout(10000, function() { req.destroy(); reject(new Error("ntfy timeout")); });
     req.write(body);
     req.end();
   });
@@ -65,8 +87,8 @@ function calcRSI(closes, period) {
     gains.push(diff > 0 ? diff : 0);
     losses.push(diff < 0 ? -diff : 0);
   }
-  var avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  var avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  var avgGain = gains.slice(0, period).reduce(function(a, b) { return a + b; }, 0) / period;
+  var avgLoss = losses.slice(0, period).reduce(function(a, b) { return a + b; }, 0) / period;
   for (var j = period; j < gains.length; j++) {
     avgGain = (avgGain * (period - 1) + gains[j]) / period;
     avgLoss = (avgLoss * (period - 1) + losses[j]) / period;
@@ -105,7 +127,7 @@ function calcATR(highs, lows, period) {
   for (var i = Math.max(1, highs.length - period); i < highs.length; i++) {
     trs.push(highs[i] - lows[i]);
   }
-  return trs.reduce((a, b) => a + b, 0) / trs.length;
+  return trs.reduce(function(a, b) { return a + b; }, 0) / trs.length;
 }
 
 function fmt(n) {
@@ -118,8 +140,15 @@ function fmt(n) {
 
 async function analyseCoin(symbol) {
   var url = "https://api.binance.com/api/v3/klines?symbol=" + symbol + "&interval=15m&limit=100";
-  var klines = await httpGet(url);
-  if (!klines || klines.length < 50) throw new Error("Not enough data");
+  var klines = await httpGetWithRetry(url, 3);
+
+  // Guard: Binance may return an error object instead of an array
+  if (!Array.isArray(klines)) {
+    throw new Error("Binance error: " + JSON.stringify(klines).slice(0, 150));
+  }
+  if (klines.length < 50) {
+    throw new Error("Not enough data: got " + klines.length + " klines");
+  }
 
   var opens   = klines.map(function(k) { return parseFloat(k[1]); });
   var highs   = klines.map(function(k) { return parseFloat(k[2]); });
@@ -136,7 +165,7 @@ async function analyseCoin(symbol) {
   var atr      = calcATR(highs, lows, 14);
 
   var recentVols = volumes.slice(-20, -1);
-  var avgVol   = recentVols.reduce((a, b) => a + b, 0) / recentVols.length;
+  var avgVol   = recentVols.reduce(function(a, b) { return a + b; }, 0) / recentVols.length;
   var volRatio = avgVol > 0 ? volumes[volumes.length - 1] / avgVol : 1;
 
   var last3Bullish = 0;
@@ -185,21 +214,27 @@ async function analyseCoin(symbol) {
 
   var rr = Math.abs(tp2 - price) / Math.abs(sl - price);
   var change1h  = ((closes[closes.length-1] - closes[closes.length-5])  / closes[closes.length-5])  * 100;
-  var change24h = ((closes[closes.length-1] - closes[closes.length-97]) / closes[closes.length-97]) * 100;
+  // Use index 96 if available, otherwise use earliest available candle
+  var oldest24h = closes[closes.length > 96 ? closes.length - 97 : 0];
+  var change24h = ((closes[closes.length-1] - oldest24h) / oldest24h) * 100;
 
   return {
-    symbol, price, direction, confidence, scoreDiff, longScore, shortScore,
-    rsi, ema9, ema21, ema50, macd: macdData.macd, macdSignal: macdData.signal,
-    volRatio, atr, last3Bullish, tp1, tp2, tp3, sl, rr,
+    symbol: symbol, price: price, direction: direction, confidence: confidence,
+    scoreDiff: scoreDiff, longScore: longScore, shortScore: shortScore,
+    rsi: rsi, ema9: ema9, ema21: ema21, ema50: ema50,
+    macd: macdData.macd, macdSignal: macdData.signal,
+    volRatio: volRatio, atr: atr, last3Bullish: last3Bullish,
+    tp1: tp1, tp2: tp2, tp3: tp3, sl: sl, rr: rr,
     support: Math.min.apply(null, lows.slice(-20)),
     resistance: Math.max.apply(null, highs.slice(-20)),
-    change1h, change24h
+    change1h: change1h, change24h: change24h
   };
 }
 
 async function scanMarket() {
   console.log("Scanning " + SCAN_COINS.length + " coins...");
   var results = [];
+  var errorCount = 0;
   for (var i = 0; i < SCAN_COINS.length; i++) {
     try {
       var r = await analyseCoin(SCAN_COINS[i]);
@@ -207,9 +242,19 @@ async function scanMarket() {
       process.stdout.write(".");
     } catch (e) {
       process.stdout.write("x");
+      // Print the actual error so failures are not invisible
+      process.stderr.write("\n  [" + SCAN_COINS[i] + " FAILED] " + e.message);
+      errorCount++;
+    }
+    // Small delay to avoid rate limiting
+    if (i < SCAN_COINS.length - 1) {
+      await sleep(100);
     }
   }
   console.log("");
+  if (errorCount > 0) {
+    console.log("Errors: " + errorCount + " coin(s) failed (see above)");
+  }
   results.sort(function(a, b) {
     var confOrder = { STRONG: 3, MEDIUM: 2, WEAK: 1 };
     if (confOrder[b.confidence] !== confOrder[a.confidence]) {
@@ -315,7 +360,12 @@ async function main() {
 
   var results = await scanMarket();
   console.log("Scanned: " + results.length + " coins");
-  if (results.length === 0) throw new Error("No results from market scan");
+  if (results.length === 0) {
+    throw new Error(
+      "No results from market scan. " +
+      "Check your internet connection or whether Binance is accessible from your network/IP."
+    );
+  }
 
   var title, message;
 
